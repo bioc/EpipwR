@@ -6,10 +6,10 @@
 #' @title Power Calculations for Continuous EWAS
 #' @description
 #' Calculates power for EWAS with a continuous outcome for multiple
-#' sample sizes and/or correlations. Data sets are only simulated for the
-#' non-null tests; p-values are generated directly for the null tests.
-#' Rather than specifying the number of data sets to calculate power, you
-#' specify the precision level (`MOE`)
+#' sample sizes and/or correlations based on Barth and Reynolds (2025). Data
+#' sets are only simulated for the non-null tests; p-values are generated
+#' directly for the null tests. Rather than specifying the number of data sets
+#' to calculate power, you specify the precision level (`MOE`)
 #' and a maximum number of data sets (`Nmax`). After 20 data sets, the
 #' function terminates when the desired precision level is reached or if the
 #' number of tested data sets reaches `Nmax`.
@@ -34,8 +34,17 @@
 #' `"kendall"` and `"spearman"` are valid options.
 #' @param use_fdr If `TRUE`, uses `fdr_fwer` as the false discovery rate.
 #' If `FALSE`, uses the family-wise type I error rate.
+#' @param det_limit The minimum absolute correlation for the effect size
+#' distribution. Ignored if `rho_sd=0`.
 #' @param Suppress_updates If `TRUE`, blocks messages reporting the completion
 #' of each unique setting.
+#' @param emp_data Reference data set in matrix or data frame format (Beta
+#' values with CpG sites as rows, samples as columns). Ignored unless
+#' `Tissue="Custom"`.
+#' @param phenotype_data A sample of phenotype data to be used in the power
+#' calculation(s). Accepts a vector with length > 100, although we recommend
+#' that users make this at least as large as their maximum sample size.
+#' If left blank, a normal distribution is used to generate correlations.
 #' @details
 #' Valid options for the `Tissue` argument are `"Saliva"`, `"Lymphoma"`,
 #' `"Placenta"`, `"Liver"`, `"Colon"`, `"Blood adult"`, `"Blood 5 year olds"`,
@@ -46,7 +55,13 @@
 #' more details) and were identified by Graw, et. al. (2019). Please note that,
 #' due to some extreme values in this data, the Lymphoma option will
 #' occasionally throw a warning related to data generation. At this time, we
-#' recommend using one of the other tissue options.
+#' recommend using one of the other tissue options. Users who would like to use
+#' their own reference data set should set `Tissue="Custom"` and provide the
+#' data in matrix or data frame format with `emp_data`. Similarly, users can
+#' also now specify their own phenotype data, either from a real data set or by
+#' generating samples from a known distribution (i.e., `rt(1000,2)`). Users who
+#' would like to take advantage of either of these settings are responsible for
+#' the quality and formatting of the data provided.
 #'
 #' Although this function only covers 3 types of statistical tests, its worth
 #' noting that tests run using software packages such as limma will yield the
@@ -56,8 +71,12 @@
 #' `test="pearson"`.
 #'
 #'
-#' @references Graw, S., Henn, R., Thompson, J. A., and Koestler, D. C. (2019).
-#' pwrEWAS: #' A user-friendly tool for comprehensive power estimation for
+#' @references Barth, J., and Reynolds, A. W. (2025). EpipwR: Efficient power
+#' analysis for EWAS with continuous outcomes. \emph{Bioinformatics Advances},
+#' 5(1), vbaf150.
+#'
+#' Graw, S., Henn, R., Thompson, J. A., and Koestler, D. C. (2019).
+#' pwrEWAS: A user-friendly tool for comprehensive power estimation for
 #' epigenome wide association studies (EWAS). \emph{BMC Bioinformatics},
 #' 20(1):218.
 #'
@@ -72,11 +91,12 @@
 #' @export
 get_power_cont <- function(dm, Total, n, fdr_fwer, rho_mu, rho_sd=0,
                            Tissue="Saliva", Nmax=1000, MOE=.03, test="pearson",
-                           use_fdr=TRUE, Suppress_updates=FALSE){
+                           use_fdr=TRUE, det_limit=.03, Suppress_updates=FALSE, emp_data=NULL,
+                           phenotype_data=NULL){
  ##Check that all inputs are valid
  gpcont_check(dm,Total,n,fdr_fwer,rho_mu,rho_sd,Tissue,Nmax,MOE,test,use_fdr,
-              Suppress_updates)
-
+              Suppress_updates, emp_data, phenotype_data)
+ gpcont_check_dl(rho_sd, det_limit)
   ###Start Power Analysis
   n <- sort(n)
   rho <- sort(rho_mu)
@@ -88,12 +108,14 @@ get_power_cont <- function(dm, Total, n, fdr_fwer, rho_mu, rho_sd=0,
   out$N <- 0
 
   ##Suppress EH message
-  suppressMessages(ab_sets <-get_EpipwR_data(Tissue))
+  if(Tissue == "Custom"){ab_sets <- abfinder(emp_data)} else{
+    suppressMessages(ab_sets <-get_EpipwR_data(Tissue))
+  }
 
   for(i in seq_len(runs)){
     Results <- get_power_findN(dm, Total, out$n[i], fdr_fwer, out$rho[i],
                                rho_sd, ab_sets, Nmax, MOE, Nmin=20, test,
-                               use_fdr)
+                               use_fdr, phenotype_data, det_limit)
     out$avg_power[i] <- mean(Results$power)
     out$sd_power[i] <- sd(Results$power)
     out$N[i] <- nrow(Results)
